@@ -12,6 +12,7 @@ declare const Buffer: {
 	concat(chunks: Buffer[]): Buffer;
 	byteLength(data: BinaryLike): number;
 	alloc(size: number): Buffer;
+	isBuffer(data: unknown): data is Buffer;
 };
 
 declare module 'crypto' {

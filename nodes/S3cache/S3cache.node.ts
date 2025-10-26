@@ -18,6 +18,7 @@ type PutObjectParams = {
 	secretAccessKey: string;
 	ttlSeconds: number;
 	contentType: string;
+	metadata?: Record<string, string>;
 };
 
 type SignRequestParams = {
@@ -132,13 +133,14 @@ const putObject = async ({
 	secretAccessKey,
 	ttlSeconds,
 	contentType,
+	metadata = {},
 }: PutObjectParams) => {
 	const url = buildS3Url(region, bucket, key);
 	const baseHeaders = {
 		'cache-control': `max-age=${ttlSeconds}`,
 		'content-length': `${body.length}`,
 		'content-type': contentType,
-		'x-amz-meta-cache-ttl-seconds': `${ttlSeconds}`,
+		...metadata,
 	};
 	const signedHeaders = signS3Request({
 		method: 'PUT',
@@ -163,9 +165,133 @@ const putObject = async ({
 	}
 };
 
+type HeadObjectParams = Omit<PutObjectParams, 'body' | 'ttlSeconds' | 'contentType' | 'metadata'>;
+type HeadObjectResult = {
+	lastModified: Date;
+	metadata: Record<string, string>;
+	contentType?: string;
+};
+
+const normalizeHeaders = (headers: IDataObject | undefined) => {
+	const normalized: Record<string, string> = {};
+	if (!headers) {
+		return normalized;
+	}
+	for (const [key, value] of Object.entries(headers)) {
+		if (value === undefined || value === null) continue;
+		if (Array.isArray(value)) {
+			normalized[key.toLowerCase()] = String(value[0]);
+		} else {
+			normalized[key.toLowerCase()] = String(value);
+		}
+	}
+	return normalized;
+};
+
+const headObject = async ({
+	ctx,
+	bucket,
+	key,
+	region,
+	accessKeyId,
+	secretAccessKey,
+}: HeadObjectParams): Promise<HeadObjectResult | null> => {
+	const url = buildS3Url(region, bucket, key);
+	const signedHeaders = signS3Request({
+		method: 'HEAD',
+		url,
+		region,
+		accessKeyId,
+		secretAccessKey,
+	});
+
+	try {
+		const response = (await ctx.helpers.httpRequest({
+			method: 'HEAD',
+			url,
+			headers: signedHeaders,
+			returnFullResponse: true,
+			encoding: 'arraybuffer',
+		})) as IDataObject;
+		const headers = normalizeHeaders((response.headers as IDataObject) ?? {});
+		const metadata: Record<string, string> = {};
+		for (const [headerName, headerValue] of Object.entries(headers)) {
+			if (headerName.startsWith('x-amz-meta-')) {
+				metadata[headerName] = headerValue;
+			}
+		}
+		const lastModifiedHeader = headers['last-modified'];
+		return {
+			lastModified: lastModifiedHeader ? new Date(lastModifiedHeader) : new Date(),
+			metadata,
+			contentType: headers['content-type'],
+		};
+	} catch {
+		return null;
+	}
+};
+
+type GetObjectParams = HeadObjectParams;
+
+const bufferFromResponse = (data: unknown): Buffer | null => {
+	if (!data) {
+		return null;
+	}
+	if (Buffer.isBuffer(data)) {
+		return data;
+	}
+	if (typeof ArrayBuffer !== 'undefined') {
+		if (data instanceof ArrayBuffer) {
+			return Buffer.from(new Uint8Array(data));
+		}
+		if (ArrayBuffer.isView(data as ArrayBufferView)) {
+			return Buffer.from(data as ArrayBufferView);
+		}
+	}
+	if (typeof data === 'string') {
+		return Buffer.from(data, 'utf8');
+	}
+
+	if (typeof data === 'object' && 'body' in (data as IDataObject) && (data as IDataObject).body) {
+		return bufferFromResponse((data as IDataObject).body);
+	}
+
+	return null;
+};
+
+const getObject = async ({
+	ctx,
+	bucket,
+	key,
+	region,
+	accessKeyId,
+	secretAccessKey,
+}: GetObjectParams): Promise<Buffer | null> => {
+	const url = buildS3Url(region, bucket, key);
+	const signedHeaders = signS3Request({
+		method: 'GET',
+		url,
+		region,
+		accessKeyId,
+		secretAccessKey,
+	});
+
+	try {
+		const response = await ctx.helpers.httpRequest({
+			method: 'GET',
+			url,
+			headers: signedHeaders,
+			encoding: 'arraybuffer',
+		});
+		return bufferFromResponse(response);
+	} catch {
+		return null;
+	}
+};
+
 export class S3cache implements INodeType {
 	description: INodeTypeDescription = {
-		displayName: 'S3cache',
+		displayName: 'S3 Cache',
 		name: 's3cache',
 		icon: 'file:s3cache.svg',
 		group: ['transform'],
@@ -308,15 +434,7 @@ export class S3cache implements INodeType {
 		for (let itemIndex = 0; itemIndex < items.length; itemIndex++) {
 			const item = items[itemIndex];
 			const operation = this.getNodeParameter('operation', itemIndex) as 'cacheCheck' | 'cacheStore';
-
-			if (operation !== 'cacheStore') {
-				returnData[0].push(item);
-				continue;
-			}
-
 			const cacheId = this.getNodeParameter('cacheId', itemIndex) as string;
-			const ttl = this.getNodeParameter('ttl', itemIndex) as number;
-			const dataSource = this.getNodeParameter('dataSource', itemIndex, 'json') as 'json' | 'binary';
 
 			if (!cacheId) {
 				throw new NodeOperationError(this.getNode(), 'Cache ID is required to store data.', {
@@ -330,49 +448,150 @@ export class S3cache implements INodeType {
 					: '';
 			const objectKey = sanitizedFolder ? `${sanitizedFolder}/${cacheId}` : cacheId;
 
-			let body: Buffer;
-			let contentType = 'application/json';
+			if (operation === 'cacheStore') {
+				const ttl = this.getNodeParameter('ttl', itemIndex) as number;
+				const dataSource = this.getNodeParameter('dataSource', itemIndex, 'json') as 'json' | 'binary';
+				let body: Buffer;
+				let contentType = 'application/json';
+				let binaryPropertyName = 'data';
 
-			if (dataSource === 'json') {
-				const jsonPayload = this.getNodeParameter('jsonData', itemIndex, {}) as IDataObject | IDataObject[] | string;
-				const serialized =
-					typeof jsonPayload === 'string' ? jsonPayload : JSON.stringify(jsonPayload ?? {});
+				if (dataSource === 'json') {
+					const jsonPayload = this.getNodeParameter('jsonData', itemIndex, {}) as
+						| IDataObject
+						| IDataObject[]
+						| string;
+					const serialized =
+						typeof jsonPayload === 'string' ? jsonPayload : JSON.stringify(jsonPayload ?? {});
 
-				if (serialized === undefined) {
-					throw new NodeOperationError(this.getNode(), 'JSON payload resolved to undefined.', {
-						itemIndex,
-					});
+					if (serialized === undefined) {
+						throw new NodeOperationError(this.getNode(), 'JSON payload resolved to undefined.', {
+							itemIndex,
+						});
+					}
+
+					body = Buffer.from(serialized, 'utf8');
+				} else {
+					binaryPropertyName = this.getNodeParameter('binaryPropertyName', itemIndex) as string;
+					const binaryProperty = this.helpers.assertBinaryData(itemIndex, binaryPropertyName);
+					body = await this.helpers.getBinaryDataBuffer(itemIndex, binaryPropertyName);
+					contentType = binaryProperty.mimeType ?? 'application/octet-stream';
 				}
 
-				body = Buffer.from(serialized, 'utf8');
-			} else {
-				const binaryPropertyName = this.getNodeParameter('binaryPropertyName', itemIndex) as string;
-				const binaryProperty = this.helpers.assertBinaryData(itemIndex, binaryPropertyName);
-				body = await this.helpers.getBinaryDataBuffer(itemIndex, binaryPropertyName);
-				contentType = binaryProperty.mimeType ?? 'application/octet-stream';
+				const metadataHeaders: Record<string, string> = {
+					'x-amz-meta-cache-ttl-seconds': `${ttl}`,
+					'x-amz-meta-cache-data-type': dataSource,
+					'x-amz-meta-cache-content-type': contentType,
+				};
+
+				if (dataSource === 'binary') {
+					metadataHeaders['x-amz-meta-cache-binary-property'] = binaryPropertyName;
+				}
+
+				try {
+					await putObject({
+						ctx: this,
+						body,
+						bucket: bucketName,
+						key: objectKey,
+						region,
+						accessKeyId,
+						secretAccessKey,
+						ttlSeconds: ttl,
+						contentType,
+						metadata: metadataHeaders,
+					});
+				} catch (error) {
+					throw new NodeOperationError(
+						this.getNode(),
+						error instanceof Error ? error.message : 'Failed to store object in S3',
+						{ itemIndex },
+					);
+				}
+
+				returnData[0].push(item);
+				continue;
 			}
+
+			const headInfo = await headObject({
+				ctx: this,
+				bucket: bucketName,
+				key: objectKey,
+				region,
+				accessKeyId,
+				secretAccessKey,
+			});
+
+			if (!headInfo) {
+				returnData[1].push(item);
+				continue;
+			}
+
+			const ttlHeader = headInfo.metadata['x-amz-meta-cache-ttl-seconds'];
+			const ttlSeconds = ttlHeader ? Number.parseInt(ttlHeader, 10) : Number.NaN;
+			const ageSeconds = (Date.now() - headInfo.lastModified.getTime()) / 1000;
+
+			if (!Number.isFinite(ttlSeconds) || ttlSeconds <= 0 || ageSeconds > ttlSeconds) {
+				returnData[1].push(item);
+				continue;
+			}
+
+			const cachedBuffer = await getObject({
+				ctx: this,
+				bucket: bucketName,
+				key: objectKey,
+				region,
+				accessKeyId,
+				secretAccessKey,
+			});
+
+			if (!cachedBuffer) {
+				returnData[1].push(item);
+				continue;
+			}
+
+			const dataType = headInfo.metadata['x-amz-meta-cache-data-type'] ?? 'json';
+
+			if (dataType === 'binary') {
+				const binaryPropertyName =
+					headInfo.metadata['x-amz-meta-cache-binary-property'] ?? 'data';
+				const mimeType =
+					headInfo.metadata['x-amz-meta-cache-content-type'] ??
+					headInfo.contentType ??
+					'application/octet-stream';
+
+				const binaryData = cachedBuffer.toString('base64');
+
+				returnData[0].push({
+					json: {},
+					binary: {
+						[binaryPropertyName]: {
+							data: binaryData,
+							mimeType,
+						},
+					},
+					pairedItem: { item: itemIndex },
+				});
+				continue;
+			}
+
+			const jsonString = cachedBuffer.toString('utf8');
+			let parsedJson: unknown;
 
 			try {
-				await putObject({
-					ctx: this,
-					body,
-					bucket: bucketName,
-					key: objectKey,
-					region,
-					accessKeyId,
-					secretAccessKey,
-					ttlSeconds: ttl,
-					contentType,
-				});
-			} catch (error) {
-				throw new NodeOperationError(
-					this.getNode(),
-					error instanceof Error ? error.message : 'Failed to store object in S3',
-					{ itemIndex },
-				);
+				parsedJson = JSON.parse(jsonString);
+			} catch {
+				parsedJson = jsonString;
 			}
 
-			returnData[0].push(item);
+			const jsonPayload =
+				parsedJson && typeof parsedJson === 'object'
+					? (parsedJson as IDataObject)
+					: ({ data: parsedJson } as IDataObject);
+
+			returnData[0].push({
+				json: jsonPayload,
+				pairedItem: { item: itemIndex },
+			});
 		}
 
 		return returnData;

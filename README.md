@@ -1,46 +1,81 @@
 # n8n-nodes-s3cache
 
-This is an n8n community node. It lets you use _app/service name_ in your n8n workflows.
+`n8n-nodes-s3cache` is an n8n community node that turns Amazon S3 (or S3-compatible storage) into a flexible cache for your workflows. It adds two actions—**Cache Store** and **Cache Check**—to help you persist intermediate data, avoid expensive API calls, and fan workflows across the `Hit`/`Miss` outputs.
 
-_App/service name_ is _one or two sentences describing the service this node integrates with_.
+Unlike traditional cache nodes, this package keeps the node "transparent": Cache Store passes its input straight through after writing to S3, and Cache Check only emits cached content when it finds a fresh entry, otherwise forwarding the original item down the miss branch.
 
-[n8n](https://n8n.io/) is a [fair-code licensed](https://docs.n8n.io/sustainable-use-license/) workflow automation platform.
-
-[Installation](#installation)
-[Operations](#operations)
-[Credentials](#credentials)
-[Compatibility](#compatibility)
-[Usage](#usage)
-[Resources](#resources)
+[Installation](#installation) •
+[Operations](#operations) •
+[Credentials](#credentials) •
+[Usage](#usage) •
+[Resources](#resources) •
 [Version history](#version-history)
+
+---
 
 ## Installation
 
-Follow the [installation guide](https://docs.n8n.io/integrations/community-nodes/installation/) in the n8n community nodes documentation.
+1. Open your self-hosted n8n instance.
+2. Navigate to **Settings → Community Nodes → Install**.
+3. Enter the package name `n8n-nodes-s3cache` and confirm.
+4. Restart n8n if prompted so the node bundle loads correctly.
+
+> ℹ️ Community nodes aren’t available on n8n Cloud. Install them on self-hosted or desktop builds only.
+
+---
 
 ## Operations
 
-_List the operations supported by your node._
+| Operation    | Description                                                                                                      | Outputs        |
+|--------------|------------------------------------------------------------------------------------------------------------------|----------------|
+| Cache Store  | Writes either JSON or a chosen binary property to the configured S3 bucket/folder, tagging objects with TTL info | `Hit` (pass-through) |
+| Cache Check  | Looks up the object by Cache ID, validates TTL, and emits cached payloads (JSON/binary) or routes to miss output | `Hit` (cached data), `Miss` (original input) |
+
+- Cache IDs map directly to object keys (optionally under a folder/prefix from the credentials).
+- TTL is stored as metadata and compared against the object’s last-modified timestamp.
+
+---
 
 ## Credentials
 
-_If users need to authenticate with the app/service, provide details here. You should include prerequisites (such as signing up with the service), available authentication methods, and how to set them up._
+Create a single **S3 Credentials** entry (ships with this package) that holds:
 
-## Compatibility
+| Field              | Notes                                                                 |
+|--------------------|-----------------------------------------------------------------------|
+| Access Key ID      | IAM user access key or equivalent                                     |
+| Secret Access Key  | Matching secret key (stored as password field)                       |
+| S3 Region          | Region for your bucket (defaults to `us-east-1`)                     |
+| S3 Bucket Name     | Bucket where cache entries will live                                  |
+| Folder Name        | Optional prefix/folder (omit leading/trailing slashes)               |
 
-_State the minimum n8n version, as well as which versions you test against. You can also include any known version incompatibility issues._
+The node signs requests with AWS Signature Version 4 using these credentials, so any S3-compatible provider that supports SigV4 should work (AWS S3, MinIO, Cloudflare R2, etc.).
+
+---
 
 ## Usage
 
-_This is an optional section. Use it to help users with any difficult or confusing aspects of the node._
+1. **Cache Store**: Drop the node after an expensive step, set Cache ID (e.g., from an item field), pick JSON or Binary payload, and optionally adjust TTL. The node writes to S3 and forwards the original data to the next node.
+2. **Cache Check**: Place this before the expensive step. Use the same Cache ID. Wire output `0` (Hit) to the downstream logic that consumes cached data, and output `1` (Miss) back into the expensive branch to recompute and store.
+3. To cache binary data, select `Binary` and provide the property name (default `data`). Cache Check will restore the binary with the same property name and MIME type metadata.
 
-_By the time users are looking for community nodes, they probably already know n8n basics. But if you expect new users, you can link to the [Try it out](https://docs.n8n.io/try-it-out/) documentation to help them get started._
+Tips:
+- Use deterministic IDs (hashes, concatenated parameters) so repeated inputs hit the same key.
+- Combine with IF/Switch nodes to merge hit/miss branches if needed.
+- TTL is enforced by checking the object’s `Last-Modified` header; set it to `0` or leave unset to bypass expiry.
+
+---
 
 ## Resources
 
-* [n8n community nodes documentation](https://docs.n8n.io/integrations/#community-nodes)
-* _Link to app/service documentation._
+- [n8n Community Nodes documentation](https://docs.n8n.io/integrations/community-nodes/installation/)
+- [Amazon S3 REST API reference](https://docs.aws.amazon.com/AmazonS3/latest/API/Welcome.html)
+- [Project repository](https://github.com/gaweee/n8n-nodes-s3cache)
+
+---
 
 ## Version history
 
-_This is another optional section. If your node has multiple versions, include a short description of available versions and what changed, as well as any compatibility impact._
+| Version | Highlights                                                                                               |
+|---------|----------------------------------------------------------------------------------------------------------|
+| 0.2.0   | Single S3 node with Cache Check/Store actions, dual outputs, SigV4 signing, JSON/Binary payload support. |
+| 0.1.x   | Initial credential scaffolding and basic Cache Store prototype.                                          |
