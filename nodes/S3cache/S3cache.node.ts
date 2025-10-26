@@ -4,7 +4,7 @@ export class S3cache implements INodeType {
 	description: INodeTypeDescription = {
 		displayName: 'S3cache',
 		name: 's3cache',
-		icon: { light: 'file:s3cache.svg', dark: 'file:s3cache.dark.svg' },
+		icon: 'file:s3cache.svg',
 		group: ['transform'],
 		version: 1,
 		subtitle: '={{$parameter["cacheId"] || ""}}',
@@ -15,7 +15,7 @@ export class S3cache implements INodeType {
 		usableAsTool: true,
 		inputs: ['main'],
 		outputs: ['main'],
-		credentials: [{ name: 'aws', required: true }],
+		credentials: [{ name: 's3cacheAws', required: true }],
 		properties: [
 			{
 				displayName: 'S3 Bucket Name',

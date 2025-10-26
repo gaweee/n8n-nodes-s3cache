@@ -8,7 +8,7 @@
   "author": { "name": "gaweee", "email": "gary@wits.sg" },
   "repository": {
     "type": "git",
-    "url": "https://github.com/<...>/n8n-nodes-<...>.git"
+    "url": "https://github.com/gaweee/n8n-nodes-s3cache.git"
   },
   "scripts": {
     "build": "n8n-node build",
@@ -23,7 +23,7 @@
   "n8n": {
     "n8nNodesApiVersion": 1,
     "strict": true,
-    "credentials": [],
+    "credentials": ["dist/credentials/S3cacheAws.credentials.js"],
     "nodes": ["dist/nodes/S3cache/S3cache.node.js"]
   },
   "devDependencies": {
