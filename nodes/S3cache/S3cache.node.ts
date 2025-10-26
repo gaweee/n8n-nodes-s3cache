@@ -18,6 +18,7 @@ type PutObjectParams = {
 	secretAccessKey: string;
 	ttlSeconds: number;
 	contentType: string;
+	forcePathStyle: boolean;
 	metadata?: Record<string, string>;
 };
 
@@ -44,8 +45,13 @@ const canonicalKey = (key: string) =>
 		)
 		.join('/');
 
-const buildS3Url = (region: string, bucket: string, key: string) =>
-	`https://${bucket}.s3.${region}.amazonaws.com/${canonicalKey(key)}`;
+const buildS3Url = (region: string, bucket: string, key: string, forcePathStyle: boolean) => {
+	const encodedKey = canonicalKey(key);
+	if (forcePathStyle || bucket.includes('.')) {
+		return `https://s3.${region}.amazonaws.com/${bucket}/${encodedKey}`;
+	}
+	return `https://${bucket}.s3.${region}.amazonaws.com/${encodedKey}`;
+};
 
 const formatHeaderName = (name: string) =>
 	name
@@ -135,7 +141,7 @@ const putObject = async ({
 	contentType,
 	metadata = {},
 }: PutObjectParams) => {
-	const url = buildS3Url(region, bucket, key);
+	const url = buildS3Url(region, bucket, key, forcePathStyle);
 	const baseHeaders = {
 		'cache-control': `max-age=${ttlSeconds}`,
 		'content-length': `${body.length}`,
@@ -195,8 +201,9 @@ const headObject = async ({
 	region,
 	accessKeyId,
 	secretAccessKey,
+	forcePathStyle,
 }: HeadObjectParams): Promise<HeadObjectResult | null> => {
-	const url = buildS3Url(region, bucket, key);
+	const url = buildS3Url(region, bucket, key, forcePathStyle);
 	const signedHeaders = signS3Request({
 		method: 'HEAD',
 		url,
@@ -266,8 +273,9 @@ const getObject = async ({
 	region,
 	accessKeyId,
 	secretAccessKey,
+	forcePathStyle,
 }: GetObjectParams): Promise<Buffer | null> => {
-	const url = buildS3Url(region, bucket, key);
+	const url = buildS3Url(region, bucket, key, forcePathStyle);
 	const signedHeaders = signS3Request({
 		method: 'GET',
 		url,
@@ -417,7 +425,7 @@ export class S3cache implements INodeType {
 			throw new NodeOperationError(this.getNode(), 'S3 credentials are missing.');
 		}
 
-		const { accessKeyId, secretAccessKey, region, bucketName, folderName } = credentials;
+		const { accessKeyId, secretAccessKey, region, bucketName, folderName, forcePathStyle } = credentials;
 
 		if (
 			typeof accessKeyId !== 'string' ||
@@ -430,6 +438,8 @@ export class S3cache implements INodeType {
 				'S3 credentials must include Access Key, Secret Key, Region, and Bucket Name.',
 			);
 		}
+
+		const usePathStyle = Boolean(forcePathStyle);
 
 		for (let itemIndex = 0; itemIndex < items.length; itemIndex++) {
 			const item = items[itemIndex];
@@ -498,6 +508,7 @@ export class S3cache implements INodeType {
 						secretAccessKey,
 						ttlSeconds: ttl,
 						contentType,
+						forcePathStyle: usePathStyle,
 						metadata: metadataHeaders,
 					});
 				} catch (error) {
@@ -519,6 +530,7 @@ export class S3cache implements INodeType {
 				region,
 				accessKeyId,
 				secretAccessKey,
+				forcePathStyle: usePathStyle,
 			});
 
 			if (!headInfo) {
@@ -542,6 +554,7 @@ export class S3cache implements INodeType {
 				region,
 				accessKeyId,
 				secretAccessKey,
+				forcePathStyle: usePathStyle,
 			});
 
 			if (!cachedBuffer) {

@@ -59,5 +59,12 @@ export class S3 implements ICredentialType {
 			default: '',
 			description: 'Folder or prefix inside the bucket for cache data',
 		},
+		{
+			displayName: 'Force Path-Style URLs',
+			name: 'forcePathStyle',
+			type: 'boolean',
+			default: false,
+			description: 'Enable when using buckets with dots in their name or S3-compatible providers that require path-style requests',
+		},
 	];
 }

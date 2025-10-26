@@ -47,6 +47,7 @@ Create a single **S3 Credentials** entry (ships with this package) that holds:
 | S3 Region          | Region for your bucket (defaults to `us-east-1`)                     |
 | S3 Bucket Name     | Bucket where cache entries will live                                  |
 | Folder Name        | Optional prefix/folder (omit leading/trailing slashes)               |
+| Force Path-Style   | Enable for buckets with dots or custom S3-compatible endpoints       |
 
 The node signs requests with AWS Signature Version 4 using these credentials, so any S3-compatible provider that supports SigV4 should work (AWS S3, MinIO, Cloudflare R2, etc.).
 
