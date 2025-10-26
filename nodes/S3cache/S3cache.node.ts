@@ -312,8 +312,8 @@ export class S3cache implements INodeType {
 		},
 		usableAsTool: true,
 		inputs: ['main'],
-		outputs: ['main', 'main'],
-		outputNames: ['Hit', 'Miss'],
+		outputs:
+			'={{$parameter["operation"] === "cacheStore" ? [{"type":"main"}] : [{"type":"main","displayName":"Hit"},{"type":"main","displayName":"Miss"}]}}',
 		credentials: [{ name: 's3', required: true }],
 		properties: [
 			{
@@ -414,7 +414,19 @@ export class S3cache implements INodeType {
 
 	async execute(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {
 		const items = this.getInputData();
-		const returnData: INodeExecutionData[][] = [[], []];
+		const configuredOperation = this.getNode().parameters.operation;
+		const defaultOperation =
+			typeof configuredOperation === 'string' && configuredOperation === 'cacheStore'
+				? 'cacheStore'
+				: 'cacheCheck';
+		const returnData: INodeExecutionData[][] =
+			defaultOperation === 'cacheStore' ? [[]] : [[], []];
+		const getOutputBucket = (index: number) => {
+			if (!returnData[index]) {
+				returnData[index] = [];
+			}
+			return returnData[index];
+		};
 
 		if (items.length === 0) {
 			return returnData;
@@ -520,7 +532,7 @@ export class S3cache implements INodeType {
 					);
 				}
 
-				returnData[0].push(item);
+				getOutputBucket(0).push(item);
 				continue;
 			}
 
@@ -535,7 +547,7 @@ export class S3cache implements INodeType {
 			});
 
 			if (!headInfo) {
-				returnData[1].push(item);
+				getOutputBucket(1).push(item);
 				continue;
 			}
 
@@ -544,7 +556,7 @@ export class S3cache implements INodeType {
 			const ageSeconds = (Date.now() - headInfo.lastModified.getTime()) / 1000;
 
 			if (!Number.isFinite(ttlSeconds) || ttlSeconds <= 0 || ageSeconds > ttlSeconds) {
-				returnData[1].push(item);
+				getOutputBucket(1).push(item);
 				continue;
 			}
 
@@ -559,7 +571,7 @@ export class S3cache implements INodeType {
 			});
 
 			if (!cachedBuffer) {
-				returnData[1].push(item);
+				getOutputBucket(1).push(item);
 				continue;
 			}
 
@@ -575,7 +587,7 @@ export class S3cache implements INodeType {
 
 				const binaryData = cachedBuffer.toString('base64');
 
-				returnData[0].push({
+				getOutputBucket(0).push({
 					json: {},
 					binary: {
 						[binaryPropertyName]: {
@@ -602,7 +614,7 @@ export class S3cache implements INodeType {
 					? (parsedJson as IDataObject)
 					: ({ data: parsedJson } as IDataObject);
 
-			returnData[0].push({
+			getOutputBucket(0).push({
 				json: jsonPayload,
 				pairedItem: { item: itemIndex },
 			});
