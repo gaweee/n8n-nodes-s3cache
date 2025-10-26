@@ -27,11 +27,13 @@ export class S3cache implements INodeType {
 					{
 						name: 'Cache Check',
 						value: 'cacheCheck',
+						action: 'Verify whether a cache entry exists',
 						description: 'Verify whether a cache entry exists',
 					},
 					{
 						name: 'Cache Store',
 						value: 'cacheStore',
+						action: 'Store or update a cache entry',
 						description: 'Store or update a cache entry',
 					},
 				],
