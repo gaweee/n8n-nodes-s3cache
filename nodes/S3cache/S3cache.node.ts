@@ -139,6 +139,7 @@ const putObject = async ({
 	secretAccessKey,
 	ttlSeconds,
 	contentType,
+	forcePathStyle,
 	metadata = {},
 }: PutObjectParams) => {
 	const url = buildS3Url(region, bucket, key, forcePathStyle);
