@@ -305,7 +305,7 @@ export class S3cache implements INodeType {
 		icon: 'file:s3cache.svg',
 		group: ['transform'],
 		version: 1,
-		subtitle: '={{$parameter["operation"]}}',
+		subtitle: '={{$parameter["operation"] === "cacheStore" ? "store" : "check"}}',
 		description: 'Read and write cached objects backed by Amazon S3',
 		defaults: {
 			name: 'S3cache',
