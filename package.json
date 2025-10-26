@@ -31,10 +31,11 @@
     "n8nNodesApiVersion": 1,
     "strict": true,
     "credentials": [
-      "dist/credentials/S3cacheAws.credentials.js"
+      "dist/credentials/S3.credentials.js"
     ],
     "nodes": [
-      "dist/nodes/S3cache/S3cache.node.js"
+      "dist/nodes/S3cache/S3cacheCheck.node.js",
+      "dist/nodes/S3cache/S3cacheStore.node.js"
     ]
   },
   "devDependencies": {

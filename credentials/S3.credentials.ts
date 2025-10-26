@@ -5,11 +5,11 @@ import type {
 	Icon,
 } from 'n8n-workflow';
 
-export class S3cacheAws implements ICredentialType {
-	name = 's3cacheAws';
-	displayName = 'S3cache Credentials';
+export class S3 implements ICredentialType {
+	name = 's3';
+	displayName = 'S3 Credentials';
 	documentationUrl = 'https://docs.aws.amazon.com/general/latest/gr/aws-sec-cred-types.html';
-	icon: Icon = { light: 'file:s3cache.svg', dark: 'file:s3cache.dark.svg' };
+	icon: Icon = 'file:s3cache.svg';
 
 	test: ICredentialTestRequest = {
 		request: {

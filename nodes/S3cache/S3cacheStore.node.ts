@@ -1,30 +1,22 @@
 import { type INodeType, type INodeTypeDescription } from 'n8n-workflow';
 
-export class S3cache implements INodeType {
+export class S3cacheStore implements INodeType {
 	description: INodeTypeDescription = {
-		displayName: 'S3cache',
-		name: 's3cache',
+		displayName: 'S3cache Store',
+		name: 's3cacheStore',
 		icon: 'file:s3cache.svg',
 		group: ['transform'],
 		version: 1,
 		subtitle: '={{$parameter["cacheId"] || ""}}',
-		description: 'Read and write cached objects backed by Amazon S3',
+		description: 'Store cache entries in S3-backed storage',
 		defaults: {
-			name: 'S3cache',
+			name: 'S3cache Store',
 		},
 		usableAsTool: true,
 		inputs: ['main'],
 		outputs: ['main'],
-		credentials: [{ name: 's3cacheAws', required: true }],
+		credentials: [{ name: 's3', required: true }],
 		properties: [
-			{
-				displayName: 'S3 Bucket Name',
-				name: 'bucketName',
-				type: 'string',
-				required: true,
-				default: '',
-				description: 'Name of the bucket where cache entries are stored',
-			},
 			{
 				displayName: 'Cache ID',
 				name: 'cacheId',
@@ -42,7 +34,7 @@ export class S3cache implements INodeType {
 				typeOptions: {
 					minValue: 1,
 				},
-				description: 'How long the cached data should remain valid',
+				description: 'How long the cached data should remain valid when storing a value',
 			},
 		],
 	};
