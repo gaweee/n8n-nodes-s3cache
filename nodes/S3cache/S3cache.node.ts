@@ -174,7 +174,7 @@ const putObject = async ({
 
 type HeadObjectParams = Omit<PutObjectParams, 'body' | 'ttlSeconds' | 'contentType' | 'metadata'>;
 type HeadObjectResult = {
-	lastModified: Date;
+	lastModified: Date | null;
 	metadata: Record<string, string>;
 	contentType?: string;
 };
@@ -229,8 +229,11 @@ const headObject = async ({
 			}
 		}
 		const lastModifiedHeader = headers['last-modified'];
+		if (!lastModifiedHeader) {
+			return null;
+		}
 		return {
-			lastModified: lastModifiedHeader ? new Date(lastModifiedHeader) : new Date(),
+			lastModified: new Date(lastModifiedHeader),
 			metadata,
 			contentType: headers['content-type'],
 		};
@@ -298,6 +301,20 @@ const getObject = async ({
 	}
 };
 
+const isCacheEntryFresh = (lastModified: Date | null, ttlSeconds: number) => {
+	if (!lastModified) {
+		return false;
+	}
+	if (!Number.isFinite(ttlSeconds) || ttlSeconds <= 0) {
+		return false;
+	}
+	const ageSeconds = (Date.now() - lastModified.getTime()) / 1000;
+	return ageSeconds <= ttlSeconds;
+};
+
+const dynamicOutputsExpression =
+	'={{$parameter["operation"] === "cacheStore" ? [{"type":"main"}] : [{"type":"main","displayName":"Hit"},{"type":"main","displayName":"Miss"}]}}';
+
 export class S3cache implements INodeType {
 	description: INodeTypeDescription = {
 		displayName: 'S3 Cache',
@@ -312,8 +329,7 @@ export class S3cache implements INodeType {
 		},
 		usableAsTool: true,
 		inputs: ['main'],
-		outputs:
-			'={{$parameter["operation"] === "cacheStore" ? [{"type":"main"}] : [{"type":"main","displayName":"Hit"},{"type":"main","displayName":"Miss"}]}}',
+		outputs: dynamicOutputsExpression,
 		credentials: [{ name: 's3', required: true }],
 		properties: [
 			{
@@ -422,6 +438,7 @@ export class S3cache implements INodeType {
 		const returnData: INodeExecutionData[][] =
 			defaultOperation === 'cacheStore' ? [[]] : [[], []];
 		const getOutputBucket = (index: number) => {
+			// Each item can switch operations, so lazily grow the buckets on demand.
 			if (!returnData[index]) {
 				returnData[index] = [];
 			}
@@ -553,9 +570,8 @@ export class S3cache implements INodeType {
 
 			const ttlHeader = headInfo.metadata['x-amz-meta-cache-ttl-seconds'];
 			const ttlSeconds = ttlHeader ? Number.parseInt(ttlHeader, 10) : Number.NaN;
-			const ageSeconds = (Date.now() - headInfo.lastModified.getTime()) / 1000;
 
-			if (!Number.isFinite(ttlSeconds) || ttlSeconds <= 0 || ageSeconds > ttlSeconds) {
+			if (!isCacheEntryFresh(headInfo.lastModified, ttlSeconds)) {
 				getOutputBucket(1).push(item);
 				continue;
 			}
@@ -623,3 +639,9 @@ export class S3cache implements INodeType {
 		return returnData;
 	}
 }
+
+export const __testables = {
+	canonicalKey,
+	bufferFromResponse,
+	isCacheEntryFresh,
+};

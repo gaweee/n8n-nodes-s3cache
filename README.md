@@ -1,8 +1,14 @@
 # n8n-nodes-s3cache
 
-`n8n-nodes-s3cache` is an n8n community node that turns Amazon S3 (or S3-compatible storage) into a flexible cache for your workflows. It adds two actions—**Cache Store** and **Cache Check**—to help you persist intermediate data, avoid expensive API calls, and fan workflows across the `Hit`/`Miss` outputs.
+`n8n-nodes-s3cache` is an n8n community node that turns Amazon S3 (or S3-compatible storage) into a flexible cache for your workflows. It adds two actions—**Store** and **Check**—to help you persist intermediate data, avoid expensive API calls, and fan workflows across the `Hit`/`Miss` outputs.
 
 Unlike traditional cache nodes, this package keeps the node "transparent": Cache Store passes its input straight through after writing to S3, and Cache Check only emits cached content when it finds a fresh entry, otherwise forwarding the original item down the miss branch.
+
+![Alt text](/assets/screenshot.png?raw=true "S3 Cache in action")
+The node is separated into 2 Actions: Store and Cache for a few reasons:
+1. Its stupidly simple
+2. Sometimes in complex workflows we have branching logic that needs each branch to be preserved independently
+3. Other gated implementation (e.g. Check and Write in a single node), whilst more elegant, often messes with the itemIndex due to the way multiple inputs are observed. <br> ![Alt text](/assets/smartcache.png?raw=true "Smart Cache in action")
 
 [Installation](#installation) •
 [Operations](#operations) •
@@ -51,18 +57,81 @@ Create a single **S3 Credentials** entry (ships with this package) that holds:
 
 The node signs requests with AWS Signature Version 4 using these credentials, so any S3-compatible provider that supports SigV4 should work (AWS S3, MinIO, Cloudflare R2, etc.).
 
+### Recommended IAM Policy
+
+Grant the IAM user only the permissions the cache needs. Replace `<insert bucketname here>` with your bucket name, then attach the following policy (adapted from [AWS S3 policy docs](https://docs.aws.amazon.com/AmazonS3/latest/userguide/example-policies-s3.html)):
+
+```json
+{
+	"Version": "2012-10-17",
+	"Statement": [
+		{
+			"Sid": "SeeAllBucketsInUI",
+			"Effect": "Allow",
+			"Action": "s3:ListAllMyBuckets",
+			"Resource": "*"
+		},
+		{
+			"Sid": "BucketMetadataAndSearch",
+			"Effect": "Allow",
+			"Action": [
+				"s3:GetBucketLocation",
+				"s3:ListBucket",
+				"s3:ListBucketVersions",
+				"s3:ListBucketMultipartUploads"
+			],
+			"Resource": "arn:aws:s3:::<insert bucketname here>"
+		},
+		{
+			"Sid": "ObjectReadWriteAndTags",
+			"Effect": "Allow",
+			"Action": [
+				"s3:GetObject",
+				"s3:GetObjectVersion",
+				"s3:GetObjectAttributes",
+				"s3:GetObjectTagging",
+				"s3:PutObject",
+				"s3:PutObjectTagging",
+				"s3:DeleteObject",
+				"s3:DeleteObjectVersion",
+				"s3:RestoreObject"
+			],
+			"Resource": "arn:aws:s3:::<insert bucketname here>/*"
+		},
+		{
+			"Sid": "MultipartHelpers",
+			"Effect": "Allow",
+			"Action": [
+				"s3:ListMultipartUploadParts",
+				"s3:AbortMultipartUpload"
+			],
+			"Resource": "arn:aws:s3:::<insert bucketname here>/*"
+		}
+	]
+}
+```
+
 ---
 
 ## Usage
 
-1. **Cache Store**: Drop the node after an expensive step, set Cache ID (e.g., from an item field), pick JSON or Binary payload, and optionally adjust TTL. The node writes to S3 and forwards the original data to the next node.
-2. **Cache Check**: Place this before the expensive step. Use the same Cache ID. Wire output `0` (Hit) to the downstream logic that consumes cached data, and output `1` (Miss) back into the expensive branch to recompute and store.
+1. **Store**: Drop the node after an expensive step, set Cache ID (e.g., from an item field), pick JSON or Binary payload, and optionally adjust TTL. The node writes to S3 and forwards the original data to the next node.
+2. **Check**: Place this before the expensive step. Use the same Cache ID. Wire output `0` (Hit) to the downstream logic that consumes cached data, and output `1` (Miss) back into the expensive branch to recompute and store.
 3. To cache binary data, select `Binary` and provide the property name (default `data`). Cache Check will restore the binary with the same property name and MIME type metadata.
 
 Tips:
 - Use deterministic IDs (hashes, concatenated parameters) so repeated inputs hit the same key.
 - Combine with IF/Switch nodes to merge hit/miss branches if needed.
-- TTL is enforced by checking the object’s `Last-Modified` header; set it to `0` or leave unset to bypass expiry.
+- TTL enforcement requires the S3 `Last-Modified` header; if it’s missing or stale the node automatically routes to the miss output.
+
+---
+
+## Testing
+
+1. Run `npm run build` to refresh the compiled `dist` bundle so tests can import the latest helpers.
+2. Execute `npm test` to run the lightweight Node test suite (no extra dependencies required).
+
+The tests cover path canonicalization, response buffering, and TTL freshness checks so regressions in those areas are caught early.
 
 ---
 
