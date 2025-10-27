@@ -19,18 +19,35 @@ test('bufferFromResponse unwraps nested bodies and strings', () => {
 	assert.equal(nested?.toString(), 'nested');
 });
 
-test('isCacheEntryFresh respects TTL boundaries', () => {
-	const { isCacheEntryFresh } = __testables;
+test('evaluateCacheFreshness respects TTL boundaries', () => {
+	const { evaluateCacheFreshness } = __testables;
 	const originalNow = Date.now;
 	const fixedNow = Date.now();
 	Date.now = () => fixedNow;
 
 	try {
 		const fiveSecondsAgo = new Date(fixedNow - 5 * 1000);
-		assert.equal(isCacheEntryFresh(fiveSecondsAgo, 10), true);
-		assert.equal(isCacheEntryFresh(fiveSecondsAgo, 4), false);
-		assert.equal(isCacheEntryFresh(null, 10), false);
-		assert.equal(isCacheEntryFresh(fiveSecondsAgo, 0), false);
+		assert.deepEqual(evaluateCacheFreshness(fiveSecondsAgo, 10), {
+			fresh: true,
+			ttlSeconds: 10,
+			ageSeconds: 5,
+		});
+		assert.deepEqual(evaluateCacheFreshness(fiveSecondsAgo, 4), {
+			fresh: false,
+			ttlSeconds: 4,
+			reason: 'expired',
+			ageSeconds: 5,
+		});
+		assert.deepEqual(evaluateCacheFreshness(null, 10), {
+			fresh: false,
+			ttlSeconds: 10,
+			reason: 'missingLastModified',
+		});
+		assert.deepEqual(evaluateCacheFreshness(fiveSecondsAgo, 0), {
+			fresh: false,
+			ttlSeconds: 0,
+			reason: 'invalidTtl',
+		});
 	} finally {
 		Date.now = originalNow;
 	}
