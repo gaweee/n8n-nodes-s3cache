@@ -1,6 +1,6 @@
 {
   "name": "n8n-nodes-s3cache",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "description": "S3 Caching Node for n8n",
   "license": "MIT",
   "homepage": "",
