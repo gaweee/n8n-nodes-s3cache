@@ -544,7 +544,9 @@ export class S3cache implements INodeType {
 				} catch (error) {
 					throw new NodeOperationError(
 						this.getNode(),
-						error instanceof Error ? error.message : 'Failed to store object in S3',
+						error instanceof Error
+							? `Failed to store "${objectKey}": ${error.message}`
+							: `Failed to store "${objectKey}" in S3`,
 						{ itemIndex },
 					);
 				}

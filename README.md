@@ -4,11 +4,14 @@
 
 Unlike traditional cache nodes, this package keeps the node "transparent": Cache Store passes its input straight through after writing to S3, and Cache Check only emits cached content when it finds a fresh entry, otherwise forwarding the original item down the miss branch.
 
-![Alt text](/assets/screenshot.png?raw=true "S3 Cache in action")
-The node is separated into 2 Actions: Store and Cache for a few reasons:
-1. Its stupidly simple
-2. Sometimes in complex workflows we have branching logic that needs each branch to be preserved independently
-3. Other gated implementation (e.g. Check and Write in a single node), whilst more elegant, often messes with the itemIndex due to the way multiple inputs are observed. <br> ![Alt text](/assets/smartcache.png?raw=true "Smart Cache in action")
+![S3 cache nodes in an n8n workflow](assets/screenshot.png)
+
+The node ships as two discrete actions for a few reasons:
+
+1. A pair of simple nodes is easier to reason about in large workflows.
+2. Complex branching logic often needs miss traffic to loop back into different branches without disturbing other inputs.
+3. Combined cache implementations can mangle n8n’s `itemIndex` when multiple inputs merge—splitting Store/Check keeps indices consistent.  
+   ![Smart cache wiring diagram](assets/smartcache.png)
 
 [Installation](#installation) •
 [Operations](#operations) •
@@ -129,9 +132,12 @@ Tips:
 ## Testing
 
 1. Run `npm run build` to refresh the compiled `dist` bundle so tests can import the latest helpers.
-2. Execute `npm test` to run the lightweight Node test suite (no extra dependencies required).
+2. Execute `npm test` to run the lightweight Node test suite (no extra dependencies required). The suite covers path canonicalization, response buffering, and TTL freshness checks so regressions in those areas are caught early.
+3. (Optional) Import the sample workflow from [`examples/cache-demo.workflow.json`](examples/cache-demo.workflow.json) into n8n. Set your S3 credentials on the Store/Check nodes, then run the workflow twice:
+   - Run 1: You should see the miss branch populate and store the computed payload.
+   - Run 2: The hit branch should fire immediately, proving the cache is being used.
 
-The tests cover path canonicalization, response buffering, and TTL freshness checks so regressions in those areas are caught early.
+> Tip: the example workflow mirrors the recommended production pattern—Check node upfront, miss branch recomputes data and passes through the Store node before rejoining the main path.
 
 ---
 

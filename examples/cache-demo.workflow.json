@@ -1,0 +1,138 @@
+{
+  "name": "S3 Cache Demo",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "1",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "return items.map(() => ({\n  json: {\n    cacheKey: 'demo-key',\n    source: 'manual-trigger'\n  },\n}));"
+      },
+      "id": "2",
+      "name": "Prepare Cache Key",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [500, 300]
+    },
+    {
+      "parameters": {
+        "operation": "cacheCheck",
+        "cacheId": "={{$json.cacheKey}}"
+      },
+      "id": "3",
+      "name": "Cache Check",
+      "type": "n8n-nodes-s3cache.s3cache",
+      "typeVersion": 1,
+      "position": [760, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "return items.map(item => ({\n  json: {\n    cacheKey: item.json.cacheKey,\n    payload: `Miss branch refreshed at ${new Date().toISOString()}`,\n  },\n}));"
+      },
+      "id": "4",
+      "name": "Build Fresh Payload",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1020, 420]
+    },
+    {
+      "parameters": {
+        "operation": "cacheStore",
+        "cacheId": "={{$json.cacheKey}}",
+        "ttl": 300,
+        "dataSource": "json",
+        "jsonData": "={{$json}}"
+      },
+      "id": "5",
+      "name": "Cache Store",
+      "type": "n8n-nodes-s3cache.s3cache",
+      "typeVersion": 1,
+      "position": [1280, 420]
+    },
+    {
+      "parameters": {
+        "mode": "passThrough",
+        "mergeByFields": {
+          "values": []
+        }
+      },
+      "id": "6",
+      "name": "Merge Hit/Miss",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2,
+      "position": [1540, 300]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Prepare Cache Key",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Cache Key": {
+      "main": [
+        [
+          {
+            "node": "Cache Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cache Check": {
+      "main": [
+        [
+          {
+            "node": "Merge Hit/Miss",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Fresh Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Fresh Payload": {
+      "main": [
+        [
+          {
+            "node": "Cache Store",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cache Store": {
+      "main": [
+        [
+          {
+            "node": "Merge Hit/Miss",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {},
+  "versionId": "f1b5a7a3-7a3c-4c35-a6e5-61b748cf9a4b"
+}
