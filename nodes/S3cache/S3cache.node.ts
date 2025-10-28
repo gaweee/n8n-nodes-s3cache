@@ -506,7 +506,7 @@ export class S3cache implements INodeType {
 			);
 		}
 
-		const usePathStyle = Boolean(forcePathStyle);
+		const usePathStyle = forcePathStyle === true || forcePathStyle === 'true';
 
 		for (let itemIndex = 0; itemIndex < items.length; itemIndex++) {
 			const item = items[itemIndex];
@@ -645,7 +645,7 @@ export class S3cache implements INodeType {
 				continue;
 			}
 
-				LoggerProxy.info('Cache hit', {
+			LoggerProxy.info('Cache hit', {
 				cacheId,
 				objectKey,
 				ttlSeconds: freshness.ttlSeconds,
@@ -717,7 +717,7 @@ export class S3cache implements INodeType {
 					? (parsedJson as IDataObject)
 					: ({ data: parsedJson } as IDataObject);
 
-				LoggerProxy.debug('Returning cached JSON payload', {
+			LoggerProxy.debug('Returning cached JSON payload', {
 				cacheId,
 				objectKey,
 				hasObjectStructure: parsedJson !== jsonString,
