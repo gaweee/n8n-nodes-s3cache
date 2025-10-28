@@ -64,7 +64,9 @@ export class S3 implements ICredentialType {
 			name: 'forcePathStyle',
 			type: 'boolean',
 			default: false,
-			description: 'Enable when using buckets with dots in their name or S3-compatible providers that require path-style requests',
+			description:
+				'Enable when your bucket name contains dots (TLS wildcard limitation), you target a custom S3-compatible endpoint, or you are running against a local S3 emulator that expects path-style URLs',
+			hint: 'Turn this on for dotted bucket names, self-hosted MinIO/Spaces/etc., or local S3 mocks. Leave off for standard AWS buckets without dots.',
 		},
 	];
 }
