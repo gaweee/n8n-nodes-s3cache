@@ -1,6 +1,6 @@
 import { createHash, createHmac } from 'node:crypto';
 import type { IDataObject, IExecuteFunctions, INodeExecutionData, INodeType, INodeTypeDescription } from 'n8n-workflow';
-import { NodeOperationError } from 'n8n-workflow';
+import { LoggerProxy, NodeOperationError } from 'n8n-workflow';
 
 type PutObjectParams = {
 	ctx: IExecuteFunctions;
@@ -14,15 +14,7 @@ type PutObjectParams = {
 	contentType: string;
 	forcePathStyle: boolean;
 	metadata?: Record<string, string>;
-	logger?: LoggerLike;
 	itemIndex?: number;
-};
-
-type LoggerLike = {
-	debug?: (message: string, meta?: IDataObject) => void;
-	info?: (message: string, meta?: IDataObject) => void;
-	warn?: (message: string, meta?: IDataObject) => void;
-	error?: (message: string, meta?: IDataObject) => void;
 };
 
 type SignRequestParams = {
@@ -144,7 +136,6 @@ const putObject = async ({
 	contentType,
 	forcePathStyle,
 	metadata = {},
-	logger,
 	itemIndex,
 }: PutObjectParams) => {
 	const url = buildS3Url(region, bucket, key, forcePathStyle);
@@ -173,39 +164,44 @@ const putObject = async ({
 			returnFullResponse: true,
 			encoding: 'arraybuffer',
 		})) as IDataObject;
-	const status =
-		(typeof response.status === 'number' && response.status) ||
-		(typeof response.statusCode === 'number' && response.statusCode);
-	if (!status || status < 200 || status >= 300) {
-	logger?.error?.('Unexpected status from S3 putObject', {
+		const status =
+			(typeof response.status === 'number' && response.status) ||
+			(typeof response.statusCode === 'number' && response.statusCode);
+		if (!status || status < 200 || status >= 300) {
+			LoggerProxy.error('Unexpected status from S3 putObject', {
+				status,
+				key,
+				bucket,
+				headers: response.headers as IDataObject,
+			});
+			throw new NodeOperationError(ctx.getNode(), `Failed to store "${key}": unexpected status ${status ?? 'unknown'}`, {
+				itemIndex,
+			});
+		}
+		LoggerProxy.debug('S3 putObject succeeded', {
 			status,
 			key,
 			bucket,
-			headers: response.headers,
-		});
-		throw new NodeOperationError(ctx.getNode(), `Failed to store "${key}": unexpected status ${status ?? 'unknown'}`, {
-			itemIndex,
-		});
-	}
-	logger?.debug?.('S3 putObject succeeded', {
-		status,
-		key,
-		bucket,
 			requestId:
 				(response.headers as IDataObject | undefined)?.['x-amz-request-id'] ??
 				(response.headers as IDataObject | undefined)?.['x-amz-id-2'],
 		});
 	} catch (error) {
-	if (error instanceof NodeOperationError) {
-		throw error;
+		if (error instanceof NodeOperationError) {
+			throw error;
+		}
+		LoggerProxy.error('Failed to store object in S3', {
+			key,
+			bucket,
+			error: error instanceof Error ? error.message : error,
+		});
+		const message =
+			error instanceof Error ? `Failed to store "${key}": ${error.message}` : `Failed to store "${key}" in S3`;
+		throw new NodeOperationError(ctx.getNode(), message, { itemIndex });
 	}
-	const message =
-		error instanceof Error ? `Failed to store "${key}": ${error.message}` : `Failed to store "${key}" in S3`;
-	throw new NodeOperationError(ctx.getNode(), message, { itemIndex });
-}
 };
 
-type HeadObjectParams = Omit<PutObjectParams, 'body' | 'ttlSeconds' | 'contentType' | 'metadata' | 'logger'>;
+type HeadObjectParams = Omit<PutObjectParams, 'body' | 'ttlSeconds' | 'contentType' | 'metadata'>;
 type HeadObjectResult = {
 	lastModified: Date | null;
 	metadata: Record<string, string>;
@@ -470,7 +466,7 @@ export class S3cache implements INodeType {
 
 	async execute(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {
 		const items = this.getInputData();
-		const logger = this.logger;
+		
 		const configuredOperation = this.getNode().parameters.operation;
 		const defaultOperation =
 			typeof configuredOperation === 'string' && configuredOperation === 'cacheStore'
@@ -569,46 +565,45 @@ export class S3cache implements INodeType {
 				}
 
 				try {
-			logger?.debug?.('Attempting to store cache entry', {
+				LoggerProxy.debug('Attempting to store cache entry', {
 						cacheId,
 						objectKey,
 						dataSource,
 						ttl,
 					});
-			await putObject({
-				ctx: this,
-				body,
-				bucket: bucketName,
-				key: objectKey,
-				region,
-				accessKeyId,
-				secretAccessKey,
-				ttlSeconds: ttl,
-				contentType,
-				forcePathStyle: usePathStyle,
-				metadata: metadataHeaders,
-				logger,
-				itemIndex,
-			});
+					await putObject({
+						ctx: this,
+						body,
+						bucket: bucketName,
+						key: objectKey,
+						region,
+						accessKeyId,
+						secretAccessKey,
+						ttlSeconds: ttl,
+						contentType,
+						forcePathStyle: usePathStyle,
+						metadata: metadataHeaders,
+						itemIndex,
+					});
 				} catch (error) {
-				logger?.error?.('Failed to store cache entry', {
-					cacheId,
-					objectKey,
-					error: error instanceof Error ? error.message : error,
-				});
-				if (error instanceof NodeOperationError) {
-					throw error;
+				LoggerProxy.error('Failed to store cache entry', {
+						cacheId,
+						objectKey,
+						error: error instanceof Error ? error.message : error,
+					});
+					if (error instanceof NodeOperationError) {
+						throw error;
+					}
+					throw new NodeOperationError(
+						this.getNode(),
+						error instanceof Error
+							? `Failed to store "${objectKey}": ${error.message}`
+							: `Failed to store "${objectKey}" in S3`,
+						{ itemIndex },
+					);
 				}
-				throw new NodeOperationError(
-					this.getNode(),
-					error instanceof Error
-						? `Failed to store "${objectKey}": ${error.message}`
-						: `Failed to store "${objectKey}" in S3`,
-					{ itemIndex },
-				);
-			}
 
-		logger?.info?.('Stored cache entry', {
+				LoggerProxy.info('Stored cache entry', {
 					cacheId,
 					objectKey,
 					dataSource,
@@ -629,7 +624,7 @@ export class S3cache implements INodeType {
 			});
 
 			if (!headInfo) {
-		logger?.debug?.('Cache miss: object not found', { cacheId, objectKey });
+				LoggerProxy.info('Cache miss: object not found', { cacheId, objectKey });
 				getOutputBucket(1).push(item);
 				continue;
 			}
@@ -639,7 +634,7 @@ export class S3cache implements INodeType {
 
 			const freshness = evaluateCacheFreshness(headInfo.lastModified, ttlSeconds);
 			if (!freshness.fresh) {
-		logger?.debug?.('Cache miss: entry not fresh', {
+				LoggerProxy.info('Cache miss: entry not fresh', {
 					cacheId,
 					objectKey,
 					reason: freshness.reason,
@@ -650,7 +645,7 @@ export class S3cache implements INodeType {
 				continue;
 			}
 
-	logger?.debug?.('Cache hit', {
+				LoggerProxy.info('Cache hit', {
 				cacheId,
 				objectKey,
 				ttlSeconds: freshness.ttlSeconds,
@@ -668,7 +663,7 @@ export class S3cache implements INodeType {
 			});
 
 			if (!cachedBuffer) {
-		logger?.debug?.('Cache miss: fetched buffer empty', { cacheId, objectKey });
+				LoggerProxy.warn('Cache miss: fetched buffer empty', { cacheId, objectKey });
 				getOutputBucket(1).push(item);
 				continue;
 			}
@@ -685,7 +680,7 @@ export class S3cache implements INodeType {
 
 				const binaryData = cachedBuffer.toString('base64');
 
-		logger?.debug?.('Returning cached binary payload', {
+				LoggerProxy.debug('Returning cached binary payload', {
 					cacheId,
 					objectKey,
 					binaryPropertyName,
@@ -710,7 +705,7 @@ export class S3cache implements INodeType {
 			try {
 				parsedJson = JSON.parse(jsonString);
 			} catch {
-		logger?.warn?.('Cached payload is not valid JSON, returning raw string', {
+				LoggerProxy.warn('Cached payload is not valid JSON, returning raw string', {
 					cacheId,
 					objectKey,
 				});
@@ -722,7 +717,7 @@ export class S3cache implements INodeType {
 					? (parsedJson as IDataObject)
 					: ({ data: parsedJson } as IDataObject);
 
-	logger?.debug?.('Returning cached JSON payload', {
+				LoggerProxy.debug('Returning cached JSON payload', {
 				cacheId,
 				objectKey,
 				hasObjectStructure: parsedJson !== jsonString,
